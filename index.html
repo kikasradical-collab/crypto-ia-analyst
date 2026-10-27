@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crypto IA Analyst</title>
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+  body { font-family: system-ui, sans-serif; background: #0f1218; color: #e6e8ee; margin: 0; padding: 20px; }
+  h1 { margin-top: 0; }
+  .controls { display: flex; gap: 10px; margin-bottom: 15px; }
+  select, button { padding: 8px 12px; border-radius: 6px; border: 1px solid #333; background: #1b2030; color: #fff; }
+  button { cursor: pointer; }
+  #chart { width: 100%; height: 420px; }
+  #analise { margin-top: 15px; padding: 15px; background: #1b2030; border-radius: 8px; line-height: 1.6; }
+  small { color: #8a90a2; }
+</style>
+</head>
+<body>
+  <h1>📈 Crypto IA Analyst</h1>
+  <div class="controls">
+    <select id="par">
+      <option>BTCUSDT</option><option>ETHUSDT</option><option>SOLUSDT</option><option>BNBUSDT</option>
+    </select>
+    <select id="tf">
+      <option value="15m">15 min</option><option value="1h" selected>1 hora</option>
+      <option value="4h">4 horas</option><option value="1d">1 dia</option>
+    </select>
+    <button onclick="analisar()">Analisar</button>
+  </div>
+
+  <div id="chart"></div>
+  <div id="analise">Escolhe um par e clica em "Analisar".</div>
+  <small>Ferramenta educativa. Não é aconselhamento financeiro.</small>
+
+<script>
+const chart = LightweightCharts.createChart(document.getElementById('chart'), {
+  layout: { background: { color: '#0f1218' }, textColor: '#d1d4dc' },
+  grid: { vertLines: { color: '#1b2030' }, horzLines: { color: '#1b2030' } },
+  timeScale: { timeVisible: true }
+});
+const candles = chart.addCandlestickSeries();
+const sma20 = chart.addLineSeries({ color: '#f5a623', lineWidth: 1 });
+const sma50 = chart.addLineSeries({ color: '#4a90e2', lineWidth: 1 });
+
+function sma(valores, n) {
+  return valores.map((_, i) => i < n - 1 ? null :
+    valores.slice(i - n + 1, i + 1).reduce((a, b) => a + b) / n);
+}
+
+function rsi(valores, n = 14) {
+  let ganhos = 0, perdas = 0;
+  for (let i = 1; i <= n; i++) {
+    const d = valores[i] - valores[i - 1];
+    d >= 0 ? ganhos += d : perdas -= d;
+  }
+  ganhos /= n; perdas /= n;
+  for (let i = n + 1; i < valores.length; i++) {
+    const d = valores[i] - valores[i - 1];
+    ganhos = (ganhos * (n - 1) + Math.max(d, 0)) / n;
+    perdas = (perdas * (n - 1) + Math.max(-d, 0)) / n;
+  }
+  return perdas === 0 ? 100 : 100 - 100 / (1 + ganhos / perdas);
+}
+
+async function analisar() {
+  const par = document.getElementById('par').value;
+  const tf = document.getElementById('tf').value;
+  const box = document.getElementById('analise');
+  box.textContent = 'A carregar dados...';
+  try {
+    const r = await fetch(`https://api.binance.com/api/v3/klines?symbol=${par}&interval=${tf}&limit=200`);
+    const dados = await r.json();
+    const velas = dados.map(d => ({
+      time: d[0] / 1000, open: +d[1], high: +d[2], low: +d[3], close: +d[4]
+    }));
+    candles.setData(velas);
+
+    const fechos = velas.map(v => v.close);
+    const m20 = sma(fechos, 20), m50 = sma(fechos, 50);
+    sma20.setData(velas.map((v, i) => m20[i] && { time: v.time, value: m20[i] }).filter(Boolean));
+    sma50.setData(velas.map((v, i) => m50[i] && { time: v.time, value: m50[i] }).filter(Boolean));
+    chart.timeScale().fitContent();
+
+    const r14 = rsi(fechos);
+    const ultimo = fechos[fechos.length - 1];
+    const tendencia = m20.at(-1) > m50.at(-1) ? 'de alta 🟢' : 'de baixa 🔴';
+    let estado = 'neutro';
+    if (r14 > 70) estado = 'sobrecompra (possível correção) ⚠️';
+    else if (r14 < 30) estado = 'sobrevenda (possível ressalto) ⚠️';
